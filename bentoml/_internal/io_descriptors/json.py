@@ -182,14 +182,29 @@ class JSON(IODescriptor[JSONType]):
         return Response(None, media_type=MIME_TYPE_JSON)
 
     async def finalize_http_response(self, response: Response, obj: JSONType):
-        json_str = json.dumps(
-            obj,
-            cls=self._json_encoder,
-            ensure_ascii=False,
-            allow_nan=False,
-            indent=None,
-            separators=(",", ":"),
-        )
+        if self._pydantic_model is not None and self._validate_json:
+            try:
+                import pydantic
+            except ImportError:
+                raise MissingDependencyException(
+                    "`pydantic` must be installed to use `pydantic_model`"
+                ) from None
+            try:
+                self._pydantic_model.parse_obj(obj)
+            except pydantic.ValidationError as e:
+                raise BadInput(f"Json validation error: {e}") from None
+        else:
+            try:
+                json_str = json.dumps(
+                    obj,
+                    cls=self._json_encoder,
+                    ensure_ascii=False,
+                    allow_nan=False,
+                    indent=None,
+                    separators=(",", ":"),
+                )
+            except (TypeError, ValueError, RecursionError) as e:
+                raise BadInput(f"Json validation error: {e}") from None
 
         response.body = response.render(json_str)
         set_content_length(response)
